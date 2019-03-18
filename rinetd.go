@@ -176,6 +176,17 @@ func main1(mgt0 * mgt){
     }
 }
 
+func makeCChans(us []*Unit, mgt0 * mgt) {
+    mgt0.Chans = make([]*cchan, 0)
+    for _, u := range us {
+        v := &cchan{}
+        v.ListenAddr = fmt.Sprintf("%v:%v", u.BindAddr, u.BindPort)
+        v.PeerAddr = fmt.Sprintf("%v:%v", u.ConnectAddr, u.ConnectPort)
+        v.Proto = "tcp"
+        mgt0.Chans = append(mgt0.Chans, v)
+    }
+}
+
 func main() {
 
     var err error
@@ -192,8 +203,7 @@ func main() {
 
     _,err = os.Stat(confPath)
     if err != nil {
-        //log.Fatal(err)
-        confPath = "/Users/hujianfei/Desktop/git_src/go_pieces/rinetd/rinetd.conf"
+        log.Fatal(err)
     }
 
     r,err := ParseFile(confPath, Debug(false), Recover(false))
@@ -207,9 +217,13 @@ func main() {
         for _,a := range ar {
             log.Println(a)
         }
+
+        makeCChans(ar,mgt0)
+        main1(mgt0)
     }else{
         log.Printf("fail parse, got %v\n",r)
     }
+
 
     log.Printf("wait exit")
     mgt0.Wg.Wait()
