@@ -1,0 +1,112 @@
+
+{
+ package main
+ // 20190317 还比较乱 初学者
+ // $ pigeon ./parse.peg | goimports | less > parse.go
+
+ type Unit struct {
+    BindAddr string
+    BindPort int
+    BindProto string
+    ConnectAddr string
+    ConnectPort int
+    ConnectProto string
+ }
+ type MyPort struct {
+    Port int
+    Proto string
+ }
+
+
+func(u *Unit)String() string{
+    return fmt.Sprintf("{bindAddr:%v bindPort:%v/%v " +
+        "connectAddr:%v connectPort:%v/%v}",
+        u.BindAddr, u.BindPort,u.BindProto,
+        u.ConnectAddr, u.ConnectPort, u.ConnectProto)
+}
+
+ func newUnit(bindAddr string, bindPort * MyPort, connectAddr string, connectPort *MyPort) *Unit {
+    u := &Unit{}
+    u.BindAddr = bindAddr
+    u.BindPort = bindPort.Port
+    u.BindProto = bindPort.Proto
+    if u.BindProto == ""{
+        u.BindProto = "/tcp"
+    }
+    u.ConnectAddr = connectAddr
+    u.ConnectPort = connectPort.Port
+    u.ConnectProto = connectPort.Proto
+    if u.ConnectProto == ""{
+            u.ConnectProto = "/tcp"
+    }
+
+    u.BindProto = strings.TrimPrefix(u.BindProto, "/")
+    u.ConnectProto = strings.TrimPrefix(u.ConnectProto, "/")
+    return u
+ }
+
+}
+
+File = argl:(Line / Comment / EndOfLine)* EndOfFile {
+    if ar0, ok := argl.([]interface{}); ok {
+        r := make([]*Unit, 0)
+        for _, ar := range ar0 {
+            if u, ok := ar.(*Unit); ok {
+                r = append(r, u)
+            }
+        }
+        return r, nil
+    }
+    return nil, nil
+}
+
+Line = argu:Unit [ ]* (("//" / "#") (!EndOfLine .)*)? EndOfLine {
+    // fmt.Printf("%s // '%s'\n", c.pos, string(c.text))
+    if u, ok := argu.(*Unit); ok{
+        return u, nil
+    }
+    return nil, fmt.Errorf("not valid Unit %v", argu)
+}
+
+Unit = bindAddr:IPv4 [ ]+ bindPort:Port [ ]+ connectAddr:IPv4 [ ]+ connectPort:Port {
+    u := newUnit(bindAddr.(string), bindPort.(*MyPort),
+        connectAddr.(string), connectPort.(*MyPort))
+    return u,nil
+}
+
+
+Port = p:DecimalDigit o:("/tcp" / "/udp" / "" ) {
+    r := &MyPort{}
+    pi,_ := strconv.Atoi(p.(string))
+    r.Port = pi
+    if a,ok := o.([]byte) ;ok {
+        r.Proto = string(a)
+    } else{
+        r.Proto = o.(string)
+    }
+    return r, nil
+}
+
+
+IPv4 = v:(( DecimalDigit '.' DecimalDigit '.' DecimalDigit '.' DecimalDigit ) / "0") {
+    if s,ok := v.(string); ok {
+        return s, nil
+    }
+    if a,ok := v.([]interface{}); ok && len(a)==7 {
+        // a == c.text
+        s := string(c.text)
+        return s, nil
+    }
+    return "null", nil
+}
+
+DecimalDigit = [0-9]+ {
+    return string(c.text),nil
+}
+
+
+
+Comment = ("//" / "#") (!EndOfLine .)* EndOfLine
+EndOfLine = "\r\n" / "\n\r" / "\r" / "\n"
+//_  <- [ \t]*
+EndOfFile = !.
