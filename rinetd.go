@@ -17,7 +17,6 @@ import (
 //
 // work like rinetd.
 
-
 type cchan struct {
     ListenAddr string `toml:"ListenAddr"`
     Proto      string `toml:"Proto"`
@@ -155,7 +154,7 @@ Proto="tcp"
 PeerAddr="127.0.0.1:8200"
 */
 
-func main1(mgt0 * mgt){
+func main1(mgt0 *mgt) {
     var cancel context.CancelFunc
     mgt0.WaitCtx, cancel = context.WithCancel(context.Background())
     setupSignal(mgt0, cancel)
@@ -176,7 +175,7 @@ func main1(mgt0 * mgt){
     }
 }
 
-func makeCChans(us []*Unit, mgt0 * mgt) {
+func makeCChans(us []*Unit, mgt0 *mgt) {
     mgt0.Chans = make([]*cchan, 0)
     for _, u := range us {
         v := &cchan{}
@@ -201,29 +200,28 @@ func main() {
     cur := filepath.Dir(fullPath)
     confPath := filepath.Join(cur, "rinetd.conf")
 
-    _,err = os.Stat(confPath)
+    _, err = os.Stat(confPath)
     if err != nil {
         log.Fatal(err)
     }
 
-    r,err := ParseFile(confPath, Debug(false), Recover(false))
+    r, err := ParseFile(confPath, Debug(false), Recover(false))
 
     if err != nil {
         log.Printf("parser err=%v", err)
     }
 
-    if ar,ok := r.([]*Unit) ;ok {
+    if ar, ok := r.([]*Unit); ok {
         log.Printf("ar len=%v\n", len(ar))
-        for _,a := range ar {
+        for _, a := range ar {
             log.Println(a)
         }
 
-        makeCChans(ar,mgt0)
+        makeCChans(ar, mgt0)
         main1(mgt0)
-    }else{
-        log.Printf("fail parse, got %v\n",r)
+    } else {
+        log.Printf("fail parse, got %v\n", r)
     }
-
 
     log.Printf("wait exit")
     mgt0.Wg.Wait()

@@ -1,112 +1,118 @@
 
 {
- package main
- // 20190317 还比较乱 初学者
- // $ pigeon ./parse.peg | goimports | less > parse.go
+package main
 
- type Unit struct {
-    BindAddr string
-    BindPort int
-    BindProto string
-    ConnectAddr string
-    ConnectPort int
+import (
+    "fmt"
+    "strconv"
+    "strings"
+)
+
+// 20190317 还比较乱 初学者
+// pigeon ./parse.peg | goimports | less > parse.go
+
+type Unit struct {
+    BindAddr     string
+    BindPort     int
+    BindProto    string
+    ConnectAddr  string
+    ConnectPort  int
     ConnectProto string
- }
- type MyPort struct {
-    Port int
+}
+type MyPort struct {
+    Port  int
     Proto string
- }
+}
 
-
-func(u *Unit)String() string{
-    return fmt.Sprintf("{bindAddr:%v bindPort:%v/%v " +
+func (u *Unit) String() string {
+    return fmt.Sprintf("{bindAddr:%v bindPort:%v/%v "+
         "connectAddr:%v connectPort:%v/%v}",
-        u.BindAddr, u.BindPort,u.BindProto,
+        u.BindAddr, u.BindPort, u.BindProto,
         u.ConnectAddr, u.ConnectPort, u.ConnectProto)
 }
 
- func newUnit(bindAddr string, bindPort * MyPort, connectAddr string, connectPort *MyPort) *Unit {
+func newUnit(bindAddr string, bindPort *MyPort, connectAddr string, connectPort *MyPort) *Unit {
     u := &Unit{}
     u.BindAddr = bindAddr
     u.BindPort = bindPort.Port
     u.BindProto = bindPort.Proto
-    if u.BindProto == ""{
+    if u.BindProto == "" {
         u.BindProto = "/tcp"
     }
     u.ConnectAddr = connectAddr
     u.ConnectPort = connectPort.Port
     u.ConnectProto = connectPort.Proto
-    if u.ConnectProto == ""{
-            u.ConnectProto = "/tcp"
+    if u.ConnectProto == "" {
+        u.ConnectProto = "/tcp"
     }
 
     u.BindProto = strings.TrimPrefix(u.BindProto, "/")
     u.ConnectProto = strings.TrimPrefix(u.ConnectProto, "/")
     return u
- }
-
 }
 
-File = argl:(Line / Comment / EndOfLine)* EndOfFile {
-    if ar0, ok := argl.([]interface{}); ok {
-        r := make([]*Unit, 0)
+func onFile(arg0 interface{}, arg1 interface{}) (interface{}, error) {
+    r := make([]*Unit, 0)
+    if ar0, ok := arg0.([]interface{}); ok {
         for _, ar := range ar0 {
-            if u, ok := ar.(*Unit); ok {
-                r = append(r, u)
+            if ar1, ok := ar.([]interface{}) ; ok && len(ar1)>0 {
+                if u, ok := ar1[0].(*Unit); ok {
+                    r = append(r, u)
+                }
             }
         }
-        return r, nil
     }
-    return nil, nil
-}
-
-Line = argu:Unit [ ]* (("//" / "#") (!EndOfLine .)*)? EndOfLine {
-    // fmt.Printf("%s // '%s'\n", c.pos, string(c.text))
-    if u, ok := argu.(*Unit); ok{
-        return u, nil
-    }
-    return nil, fmt.Errorf("not valid Unit %v", argu)
-}
-
-Unit = bindAddr:IPv4 [ ]+ bindPort:Port [ ]+ connectAddr:IPv4 [ ]+ connectPort:Port {
-    u := newUnit(bindAddr.(string), bindPort.(*MyPort),
-        connectAddr.(string), connectPort.(*MyPort))
-    return u,nil
-}
-
-
-Port = p:DecimalDigit o:("/tcp" / "/udp" / "" ) {
-    r := &MyPort{}
-    pi,_ := strconv.Atoi(p.(string))
-    r.Port = pi
-    if a,ok := o.([]byte) ;ok {
-        r.Proto = string(a)
-    } else{
-        r.Proto = o.(string)
+    if u,ok := arg1.(*Unit); ok {
+        r = append(r, u)
     }
     return r, nil
 }
 
+func onLine(arg0 interface{}) (interface{}, error) {
+    // fmt.Printf("%s // '%s'\n", c.pos, string(c.text))
+    if u, ok := arg0.(*Unit); ok {
+        return u, nil
+    }
+    return nil, fmt.Errorf("not valid Unit %v", arg0)
+}
 
-IPv4 = v:(( DecimalDigit '.' DecimalDigit '.' DecimalDigit '.' DecimalDigit ) / "0") {
-    if s,ok := v.(string); ok {
+func onPort(arg0 interface{}, arg1 interface{}) (interface{}, error) {
+    r := &MyPort{}
+    pi, _ := strconv.Atoi(arg0.(string))
+    r.Port = pi
+    if a, ok := arg1.([]byte); ok {
+        r.Proto = string(a)
+    } else {
+        r.Proto = arg1.(string)
+    }
+    return r, nil
+}
+
+func onIPv4(arg0 interface{}, txt []byte) (interface{}, error) {
+
+    if s, ok := arg0.(string); ok {
         return s, nil
     }
-    if a,ok := v.([]interface{}); ok && len(a)==7 {
+    if a, ok := arg0.([]interface{}); ok && len(a) == 7 {
         // a == c.text
-        s := string(c.text)
+        s := string(txt)
         return s, nil
     }
     return "null", nil
 }
 
-DecimalDigit = [0-9]+ {
-    return string(c.text),nil
 }
 
+File            = arg0:(Line EndOfLine / Comment EndOfLine / EndOfLine)* arg1:(Line / Comment)?  EndOfFile {
+                    return onFile(arg0, arg1)}
+Line            = arg0:Unit [ ]* Comment? { return onLine(arg0)}
+Unit            = bindAddr:IPv4 [ ]+ bindPort:Port [ ]+ connectAddr:IPv4 [ ]+ connectPort:Port {
+                    return newUnit(bindAddr.(string), bindPort.(*MyPort),
+                        connectAddr.(string), connectPort.(*MyPort)),nil}
 
-
-Comment = ("//" / "#") (!EndOfLine .)* EndOfLine
-EndOfLine = "\r\n" / "\n\r" / "\r" / "\n"
-//_  <- [ \t]*
-EndOfFile = !.
+Port            = arg0:DecimalDigit arg1:("/tcp" / "/udp" / "" ) { return onPort(arg0, arg1)}
+IPv4            = arg0:(( DecimalDigit '.' DecimalDigit '.' DecimalDigit '.' DecimalDigit ) / "0") { return onIPv4(arg0,c.text)}
+DecimalDigit    = [0-9]+ { return string(c.text),nil}
+Comment         = ("//" / "#") (!EndOfLine .)*
+EndOfLine       = "\r\n" / "\n\r" / "\r" / "\n"
+EndOfFile       = !.
