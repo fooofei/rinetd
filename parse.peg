@@ -103,16 +103,19 @@ func onIPv4(arg0 interface{}, txt []byte) (interface{}, error) {
 
 }
 
-File            = arg0:(Line EndOfLine / Comment EndOfLine / EndOfLine)* arg1:(Line / Comment)?  EndOfFile {
+File          = arg0:(Line EndOfLine / Comment EndOfLine / EndOfLine)* arg1:(Line / Comment)?  EndOfFile {
                     return onFile(arg0, arg1)}
-Line            = arg0:Unit [ ]* Comment? { return onLine(arg0)}
-Unit            = bindAddr:IPv4 [ ]+ bindPort:Port [ ]+ connectAddr:IPv4 [ ]+ connectPort:Port {
+Line          = arg0:Unit _ Comment? { 
+                    return onLine(arg0)}
+Unit          = bindAddr:IPv4 [ ]+ bindPort:Port [ ]+ connectAddr:IPv4 [ ]+ connectPort:Port {
                     return newUnit(bindAddr.(string), bindPort.(*MyPort),
                         connectAddr.(string), connectPort.(*MyPort)),nil}
 
-Port            = arg0:DecimalDigit arg1:("/tcp" / "/udp" / "" ) { return onPort(arg0, arg1)}
-IPv4            = arg0:(( DecimalDigit '.' DecimalDigit '.' DecimalDigit '.' DecimalDigit ) / "0") { return onIPv4(arg0,c.text)}
-DecimalDigit    = [0-9]+ { return string(c.text),nil}
-Comment         = ("//" / "#") (!EndOfLine .)*
-EndOfLine       = "\r\n" / "\n\r" / "\r" / "\n"
-EndOfFile       = !.
+Port          = arg0:DecimalDigit arg1:("/tcp" / "/udp" / "" ) { return onPort(arg0, arg1)}
+IPv4          = arg0:(( DecimalDigit '.' DecimalDigit '.' DecimalDigit '.' DecimalDigit ) / "0") { 
+                    return onIPv4(arg0,c.text)}
+DecimalDigit  = [0-9]+ { return string(c.text),nil}
+Comment       = ("//" / "#") (!EndOfLine .)*
+EndOfLine     = "\r\n" / "\n\r" / "\r" / "\n"
+_             = [ \t]*
+EndOfFile     = !.
