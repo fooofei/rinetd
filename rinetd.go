@@ -1,6 +1,7 @@
 package main
 
 import (
+    "bufio"
     "context"
     "fmt"
     "io"
@@ -9,29 +10,60 @@ import (
     "os"
     "os/signal"
     "path/filepath"
+    "strings"
     "sync"
+    "sync/atomic"
     "syscall"
+    "time"
 )
 
 //
 //
-// work like rinetd.
+// work like `rinetd`.
 
-type cchan struct {
-    ListenAddr string `toml:"ListenAddr"`
-    Proto      string `toml:"Proto"`
-    PeerAddr   string `toml:"PeerAddr"`
+// 记录转发链，监听地址，要转发到什么地址
+type chain struct {
+    ListenAddr string
+    Proto      string
+    ToAddr     string
 }
 
-func (c *cchan) String() string {
-    return fmt.Sprintf("ListenAddr=%v Proto=%v PeerAddr=%v",
-        c.ListenAddr, c.Proto, c.PeerAddr)
+func (c *chain) String() string {
+    return fmt.Sprintf("%v->%v %v", c.ListenAddr, c.ToAddr, c.Proto)
+}
+
+type udpSession struct {
+    FromCnn    net.PacketConn
+    FromAddr   net.Addr
+    OwnerChain *chain
+    WriteTime  int64
+    ToCnn      net.Conn
+}
+
+func (u *udpSession) Close() error {
+    return u.ToCnn.Close()
 }
 
 type mgt struct {
-    Chans   []*cchan `toml:"Chans"`
+    // 业务集合
+    Chains    []*chain
+    UdpSsns   sync.Map // hash udpSession
+    TcpCnnCnt uint64
+    //
+    StatInterval time.Duration
+    UdpTTLSec    int64
+    // 同步
     WaitCtx context.Context
     Wg      *sync.WaitGroup
+}
+
+func (m *mgt) UdpCnnCnt() uint64 {
+    r := uint64(0)
+    m.UdpSsns.Range(func(key, value interface{}) bool {
+        r++
+        return true
+    })
+    return r
 }
 
 func setupSignal(mgt0 *mgt, cancel context.CancelFunc) {
@@ -48,8 +80,11 @@ func setupSignal(mgt0 *mgt, cancel context.CancelFunc) {
         }
         mgt0.Wg.Done()
     }()
+
 }
 
+// 可以通过 WaitCtx.Done 关闭 Closer
+// 可以通过 返回值 chan 关闭 Closer
 func registerCloseCnn0(mgt0 *mgt, c io.Closer) chan bool {
     cc := make(chan bool, 1)
 
@@ -63,14 +98,15 @@ func registerCloseCnn0(mgt0 *mgt, c io.Closer) chan bool {
         mgt0.Wg.Done()
     }()
     return cc
-
 }
 
-func forward(mgt0 *mgt, c *cchan, left io.ReadWriteCloser, right io.ReadWriteCloser) {
+func forwardTCP(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWriteCloser) {
     _ = c
     wg := new(sync.WaitGroup)
     canClose := make(chan bool, 1)
+    atomic.AddUint64(&mgt0.TcpCnnCnt, 1)
 
+    // right -> left
     mgt0.Wg.Add(1)
     wg.Add(1)
     go func() {
@@ -80,6 +116,7 @@ func forward(mgt0 *mgt, c *cchan, left io.ReadWriteCloser, right io.ReadWriteClo
         mgt0.Wg.Done()
     }()
 
+    // left -> right
     mgt0.Wg.Add(1)
     wg.Add(1)
     go func() {
@@ -89,6 +126,7 @@ func forward(mgt0 *mgt, c *cchan, left io.ReadWriteCloser, right io.ReadWriteClo
         mgt0.Wg.Done()
     }()
 
+    // wait read & write close
     mgt0.Wg.Add(1)
     go func() {
         wg.Wait()
@@ -102,12 +140,50 @@ func forward(mgt0 *mgt, c *cchan, left io.ReadWriteCloser, right io.ReadWriteClo
     }
     _ = left.Close()
     _ = right.Close()
-
+    atomic.AddUint64(&mgt0.TcpCnnCnt, ^uint64((0)))
 }
 
-func setupCChanTCP(mgt0 *mgt, c *cchan) {
+// 只转发 right -> left 方向的 UDP 报文
+// SetReadDeadline 协助完成老化功能
+func forwardUDP(mgt0 *mgt, us *udpSession) {
+    b := make([]byte, 64*1024)
+    closeChan := registerCloseCnn0(mgt0, us)
+    for {
+        t := time.Now().Add(time.Second * time.Duration(mgt0.UdpTTLSec))
+        _ = us.ToCnn.SetReadDeadline(t)
+        // this is a udp read
+        n, err := us.ToCnn.Read(b)
+        _ = us.ToCnn.SetReadDeadline(time.Time{})
+        if err != nil {
+            if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+                now := time.Now().Unix()
+                hit := atomic.LoadInt64(&us.WriteTime)
+                // when read timeout, if writed we wait read again
+                if now > hit && (now-hit) > int64(mgt0.UdpTTLSec) {
+                    log.Printf("forwardUDP %v aged", us.OwnerChain)
+                    break
+                }
+            } else {
+                log.Printf("forwardUDP %v Read err=%v", us.OwnerChain, err)
+                break
+            }
+        } else {
+            _, err = us.FromCnn.WriteTo(b[:n], us.FromAddr)
+            if err != nil {
+                log.Printf("forwardUDP %v WriteTo err=%v", us.OwnerChain, err)
+                break
+            }
+        }
+    }
+    close(closeChan)
+    log.Printf("forwardUDP %v exit", us.OwnerChain)
+    mgt0.UdpSsns.Delete(us.FromAddr.String())
+    _ = us.Close()
+}
+
+func setupTCPChain(mgt0 *mgt, c *chain) {
     var err error
-    log.Printf("setup cchan for %v", c)
+    log.Printf("setup chain for %v", c)
 
     var lc net.ListenConfig
     sn, err := lc.Listen(mgt0.WaitCtx, c.Proto, c.ListenAddr)
@@ -118,27 +194,98 @@ func setupCChanTCP(mgt0 *mgt, c *cchan) {
     for {
         cnn, err := sn.Accept()
         if err != nil {
+            log.Printf("setupTCPChain %v Accept err=%v", c, err)
             break
         }
 
         // connect peer
         d := new(net.Dialer)
-        peerCnn, err := d.DialContext(mgt0.WaitCtx, c.Proto, c.PeerAddr)
+        toCnn, err := d.DialContext(mgt0.WaitCtx, c.Proto, c.ToAddr)
         if err != nil {
-            log.Printf("dial %v err=%v", c.PeerAddr, err)
-            _ = cnn.Close()
-        } else {
-            mgt0.Wg.Add(1)
-            go func(arg0 *mgt, arg1 *cchan, arg2 io.ReadWriteCloser, arg3 io.ReadWriteCloser) {
-                forward(arg0, arg1, arg2, arg3)
-                arg0.Wg.Done()
-            }(mgt0, c, cnn, peerCnn)
+            log.Printf("dial %v %v err=%v", c.Proto, c.ToAddr, err)
+            continue
         }
+        log.Printf("setupTCPChain got cnn pair %v %v->%v==>%v->%v", c.Proto,
+            cnn.RemoteAddr().String(), cnn.LocalAddr().String(),
+            toCnn.LocalAddr().String(), toCnn.RemoteAddr().String())
+        mgt0.Wg.Add(1)
+        go func(arg0 *mgt, arg1 *chain, arg2 io.ReadWriteCloser, arg3 io.ReadWriteCloser) {
+            forwardTCP(arg0, arg1, arg2, arg3)
+            arg0.Wg.Done()
+        }(mgt0, c, cnn, toCnn)
 
     }
-
     close(closeChan)
+}
+func newUdpSsn(mgt0 *mgt, c *chain, fromAddr net.Addr, fromCnn net.PacketConn) *udpSession {
+    d := new(net.Dialer)
+    toCnn, err := d.DialContext(mgt0.WaitCtx, c.Proto, c.ToAddr)
+    if err != nil {
+        log.Printf("dail %v err=%v", c.ToAddr, err)
+        return nil
+    }
+    u := &udpSession{}
+    u.WriteTime = time.Now().Unix()
+    u.ToCnn = toCnn
+    u.FromAddr = fromAddr
+    u.FromCnn = fromCnn
+    u.OwnerChain = c
+    return u
+}
+func setupUDPChain(mgt0 *mgt, c *chain) {
+    var err error
+    log.Printf("setup chain for %v", c)
 
+    var lc net.ListenConfig
+    pktCnn, err := lc.ListenPacket(mgt0.WaitCtx, c.Proto, c.ListenAddr)
+    if err != nil {
+        log.Fatal(err)
+    }
+    closeChan := registerCloseCnn0(mgt0, pktCnn)
+    rbuf := make([]byte, 64*1024)
+    for {
+        rsize, raddr, err := pktCnn.ReadFrom(rbuf)
+        if err != nil {
+            log.Printf("setupUDPChain %v ReadFrom err=%v", c, err)
+            break
+        }
+        var oldUdpSsn *udpSession
+        newUdpSsn := newUdpSsn(mgt0, c, raddr, pktCnn)
+        if newUdpSsn != nil {
+            ssn, loaded := mgt0.UdpSsns.LoadOrStore(raddr.String(), newUdpSsn)
+            if loaded {
+                _ = newUdpSsn.Close()
+            } else {
+                log.Printf("setupUDPChain got cnn pair %v %v->%v==>%v->%v", c.Proto,
+                    raddr.String(), pktCnn.LocalAddr().String(),
+                    newUdpSsn.ToCnn.LocalAddr().String(), newUdpSsn.ToCnn.RemoteAddr().String())
+                mgt0.Wg.Add(1)
+                go func(arg0 *mgt, arg1 *udpSession) {
+                    forwardUDP(arg0, arg1)
+                    arg0.Wg.Done()
+                }(mgt0, newUdpSsn)
+            }
+            oldUdpSsn, _ = ssn.(*udpSession)
+        } else {
+            ssn, ok := mgt0.UdpSsns.Load(raddr.String())
+            if !ok {
+                log.Printf("setupUDPChain %v fail newUdpSsn and fail load from map", c)
+            } else {
+                oldUdpSsn, _ = ssn.(*udpSession)
+            }
+        }
+        if oldUdpSsn == nil {
+            continue
+        }
+        _, err = oldUdpSsn.ToCnn.Write(rbuf[:rsize])
+        atomic.StoreInt64(&oldUdpSsn.WriteTime, time.Now().Unix())
+        if err != nil {
+            log.Printf("setupUDPChain ToCnn Write err=%v", err)
+            _ = oldUdpSsn.Close()
+            mgt0.UdpSsns.Delete(raddr.String())
+        }
+    }
+    close(closeChan)
 }
 
 /**
@@ -152,49 +299,93 @@ PeerAddr="127.0.0.1:8100"
 ListenAddr="0.0.0.0:5679"
 Proto="tcp"
 PeerAddr="127.0.0.1:8200"
+
+parser sample
+0.0.0.0 5678/tcp 127.0.0.1 8100/tcp
+
+用上面的都太复杂了
 */
 
-func main1(mgt0 *mgt) {
+func setupChains(mgt0 *mgt) {
     var cancel context.CancelFunc
     mgt0.WaitCtx, cancel = context.WithCancel(context.Background())
     setupSignal(mgt0, cancel)
 
-    if len(mgt0.Chans) == 0 {
-        log.Printf("no chans to work")
+    if len(mgt0.Chains) == 0 {
+        log.Printf("no chains to work")
         cancel()
-    } else {
-        for _, c := range mgt0.Chans {
-            mgt0.Wg.Add(1)
-            go func(arg0 *mgt, arg1 *cchan) {
-                setupCChanTCP(arg0, arg1)
-                arg0.Wg.Done()
-            }(mgt0, c)
+        return
+    }
+    for _, c := range mgt0.Chains {
+        mgt0.Wg.Add(1)
+        go func(arg0 *mgt, arg1 *chain) {
+            if arg1.Proto == "tcp" {
+                setupTCPChain(arg0, arg1)
+            } else if arg1.Proto == "udp" {
+                setupUDPChain(arg0, arg1)
+            }
+            arg0.Wg.Done()
+        }(mgt0, c)
+    }
+}
+
+func listChainsFromConf(filename string, mgt0 *mgt) {
+    fr, err := os.Open(filename)
+    if err != nil {
+        log.Fatalf("read %v err=%v", filename, err)
+    }
+
+    sc := bufio.NewScanner(fr)
+    for sc.Scan() {
+        t := sc.Text()
+        t = strings.TrimSpace(t)
+        if len(t) <= 0 || t[0] == '#' {
+            continue
         }
-        // infinit wait
-        <-mgt0.WaitCtx.Done()
+
+        ar := strings.Split(t, " ")
+        if len(ar) < 3 {
+            continue
+        }
+        arValid := make([]string, 0)
+        for _, e := range ar {
+            e = strings.TrimSpace(e)
+            if len(e) > 0 {
+                arValid = append(arValid, e)
+            }
+        }
+        if len(arValid) > 2 {
+            v := &chain{}
+            v.ListenAddr = arValid[0]
+            v.ToAddr = arValid[1]
+            v.Proto = strings.ToLower(arValid[2])
+            mgt0.Chains = append(mgt0.Chains, v)
+        }
+    }
+    _ = fr.Close()
+}
+
+func stat(mgt0 *mgt) {
+
+    tc := time.Tick(mgt0.StatInterval)
+loop:
+    for {
+        select {
+        case <-mgt0.WaitCtx.Done():
+            break loop
+        case <-tc:
+            log.Printf("tcp %v udp %v", mgt0.TcpCnnCnt, mgt0.UdpCnnCnt())
+        }
     }
 }
 
-func makeCChans(us []*Unit, mgt0 *mgt) {
-    mgt0.Chans = make([]*cchan, 0)
-    for _, u := range us {
-        v := &cchan{}
-        v.ListenAddr = fmt.Sprintf("%v:%v", u.BindAddr, u.BindPort)
-        v.PeerAddr = fmt.Sprintf("%v:%v", u.ConnectAddr, u.ConnectPort)
-        v.Proto = "tcp"
-        mgt0.Chans = append(mgt0.Chans, v)
-    }
-}
-
-func main() {
-
+func doWork() {
     var err error
     mgt0 := new(mgt)
     mgt0.Wg = new(sync.WaitGroup)
-
-    //
-    log.SetFlags(log.LstdFlags | log.Lshortfile)
-    log.SetPrefix(fmt.Sprintf("pid= %v ", os.Getpid()))
+    mgt0.Chains = make([]*chain, 0)
+    mgt0.StatInterval = time.Minute
+    mgt0.UdpTTLSec = int64(time.Minute.Seconds())
 
     fullPath, _ := os.Executable()
     cur := filepath.Dir(fullPath)
@@ -202,29 +393,23 @@ func main() {
 
     _, err = os.Stat(confPath)
     if err != nil {
-        log.Fatal(err)
+        log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
     }
-
-    r, err := ParseFile(confPath, Debug(false), Recover(false))
-
-    if err != nil {
-        log.Printf("parser err=%v", err)
-    }
-
-    if ar, ok := r.([]*Unit); ok {
-        log.Printf("ar len=%v\n", len(ar))
-        for _, a := range ar {
-            log.Println(a)
-        }
-
-        makeCChans(ar, mgt0)
-        main1(mgt0)
-    } else {
-        log.Printf("fail parse, got %v\n", r)
-    }
-
+    listChainsFromConf(confPath, mgt0)
+    mgt0.Wg.Add(1)
+    go func() {
+        stat(mgt0)
+        mgt0.Wg.Done()
+    }()
+    setupChains(mgt0)
+    <-mgt0.WaitCtx.Done()
     log.Printf("wait exit")
     mgt0.Wg.Wait()
-    log.Printf("main exit")
+}
 
+func main() {
+    log.SetFlags(log.LstdFlags | log.Lshortfile)
+    log.SetPrefix(fmt.Sprintf("pid= %v ", os.Getpid()))
+    doWork()
+    log.Printf("main exit")
 }
