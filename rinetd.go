@@ -343,7 +343,7 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
             continue
         }
 
-        ar := strings.Split(t, " ")
+        ar := strings.Fields(t)
         if len(ar) < 3 {
             continue
         }
