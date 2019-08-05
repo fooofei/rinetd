@@ -17,9 +17,7 @@ import (
     "time"
 )
 
-//
-//
-// work like `rinetd`.
+// worked like `rinetd`.
 
 // 记录转发链，监听地址，要转发到什么地址
 type chain struct {
@@ -48,7 +46,7 @@ type mgt struct {
     // 业务集合
     Chains    []*chain
     UdpSsns   sync.Map // hash udpSession
-    TcpCnnCnt uint64
+    TcpCnnCnt int64
     //
     StatInterval time.Duration
     UdpTTLSec    int64
@@ -104,7 +102,7 @@ func forwardTCP(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWrite
     _ = c
     wg := new(sync.WaitGroup)
     canClose := make(chan bool, 1)
-    atomic.AddUint64(&mgt0.TcpCnnCnt, 1)
+    atomic.AddInt64(&mgt0.TcpCnnCnt, 1)
 
     // right -> left
     mgt0.Wg.Add(1)
@@ -140,7 +138,7 @@ func forwardTCP(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWrite
     }
     _ = left.Close()
     _ = right.Close()
-    atomic.AddUint64(&mgt0.TcpCnnCnt, ^uint64((0)))
+    atomic.AddInt64(&mgt0.TcpCnnCnt, -1)
 }
 
 // 只转发 right -> left 方向的 UDP 报文
@@ -158,7 +156,7 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
             if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
                 now := time.Now().Unix()
                 hit := atomic.LoadInt64(&us.WriteTime)
-                // when read timeout, if writed we wait read again
+                // when read timeout, see age or not
                 if now > hit && (now-hit) > int64(mgt0.UdpTTLSec) {
                     log.Printf("forwardUDP %v aged", us.OwnerChain)
                     break
@@ -178,7 +176,6 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
     close(closeChan)
     log.Printf("forwardUDP %v exit", us.OwnerChain)
     mgt0.UdpSsns.Delete(us.FromAddr.String())
-    _ = us.Close()
 }
 
 func setupTCPChain(mgt0 *mgt, c *chain) {
@@ -242,7 +239,7 @@ func setupUDPChain(mgt0 *mgt, c *chain) {
         log.Fatal(err)
     }
     closeChan := registerCloseCnn0(mgt0, pktCnn)
-    rbuf := make([]byte, 64*1024)
+    rbuf := make([]byte, 128*1024)
     for {
         rsize, raddr, err := pktCnn.ReadFrom(rbuf)
         if err != nil {
@@ -306,9 +303,7 @@ parser sample
 用上面的都太复杂了
 */
 
-func setupChains(mgt0 *mgt) {
-    var cancel context.CancelFunc
-    mgt0.WaitCtx, cancel = context.WithCancel(context.Background())
+func setupChains(mgt0 *mgt, cancel context.CancelFunc) {
     setupSignal(mgt0, cancel)
 
     if len(mgt0.Chains) == 0 {
@@ -381,11 +376,13 @@ loop:
 
 func doWork() {
     var err error
+    var cancel context.CancelFunc
     mgt0 := new(mgt)
     mgt0.Wg = new(sync.WaitGroup)
     mgt0.Chains = make([]*chain, 0)
     mgt0.StatInterval = time.Minute
     mgt0.UdpTTLSec = int64(time.Minute.Seconds())
+    mgt0.WaitCtx, cancel = context.WithCancel(context.Background())
 
     fullPath, _ := os.Executable()
     cur := filepath.Dir(fullPath)
@@ -393,15 +390,18 @@ func doWork() {
 
     _, err = os.Stat(confPath)
     if err != nil {
-        log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
+        //log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
+        confPath = "/Users/hujianfei/Desktop/git_src/rinetd/rinetd.conf"
     }
     listChainsFromConf(confPath, mgt0)
     mgt0.Wg.Add(1)
+    // create mgt0.WaitCtx
+    setupChains(mgt0, cancel)
+    // use mgt0.WaitCtx
     go func() {
         stat(mgt0)
         mgt0.Wg.Done()
     }()
-    setupChains(mgt0)
     <-mgt0.WaitCtx.Done()
     log.Printf("wait exit")
     mgt0.Wg.Wait()
