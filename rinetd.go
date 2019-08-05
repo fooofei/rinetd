@@ -390,8 +390,7 @@ func doWork() {
 
 	_, err = os.Stat(confPath)
 	if err != nil {
-		//log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
-		confPath = "/Users/hujianfei/Desktop/git_src/rinetd/rinetd.conf"
+		log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
 	}
 	listChainsFromConf(confPath, mgt0)
 	mgt0.Wg.Add(1)
