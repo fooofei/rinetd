@@ -393,15 +393,9 @@ func doWork() {
 		log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
 	}
 	listChainsFromConf(confPath, mgt0)
-	mgt0.Wg.Add(1)
 	// create mgt0.WaitCtx
 	setupChains(mgt0, cancel)
-	// use mgt0.WaitCtx
-	go func() {
-		stat(mgt0)
-		mgt0.Wg.Done()
-	}()
-	<-mgt0.WaitCtx.Done()
+	stat(mgt0)
 	log.Printf("wait exit")
 	mgt0.Wg.Wait()
 }
