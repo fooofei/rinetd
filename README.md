@@ -12,22 +12,24 @@ will generate `rinetd` file.
 
 ## Use
 
-Same like the c version of rinetd, this rinetd use addr pairs write in `rinetd.conf`.
+Unlike the c version of rinetd, this rinetd use addr pairs writed in `rinetd.conf`.
 
-The addr pairs format look like
+The addr pairs format look like in `rinetd.conf`
 ```
-0.0.0.0 12345 127.0.0.1 2345
+0.0.0.0:44444   127.0.0.1:55555     tcp
+0.0.0.0:5679    127.0.0.1:8200      udp
 ```
 
-rinetd will listen on `0.0.0.0:12345` and the TCP connection from this port will pipe read/write to `127.0.0.1:2345`.
+first, rinetd will listen on `0.0.0.0:44444` for TCP and 
+
+will pipe read/write from this port to `127.0.0.1:55555`.
+
+second, rinetd will listen on `0.0.0.0:5679` for UDP and 
+
+will pipe read/write from this port to `127.0.0.1:8200`.
+
 
 You can also write commnet line begin with `#` or `//`.
 
 WARN:The `deny` and `allow` not supported.
-
-
-
-## TODO
-
-The `parse.peg` also young, not strong.
 

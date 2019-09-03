@@ -98,6 +98,17 @@ func registerCloseCnn0(mgt0 *mgt, c io.Closer) chan bool {
 	return cc
 }
 
+// 有的人是双向中任何一个方向断开，都会断开双向
+// 代码这样写, 技巧：还使用到了 sync.Once 只运行 1 次。
+// var once sync.Once
+// go func() {
+// 	io.Copy(connection, bashf)
+// 	once.Do(close)
+// }()
+// go func() {
+// 	io.Copy(bashf, connection)
+// 	once.Do(close)
+// }()
 func forwardTCP(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWriteCloser) {
 	_ = c
 	wg := new(sync.WaitGroup)
