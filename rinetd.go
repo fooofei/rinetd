@@ -19,7 +19,7 @@ import (
 
 // worked like `rinetd`.
 
-// 记录转发链，监听地址，要转发到什么地址
+// forward TCP/UDP from ListenAddr to ToAddr
 type chain struct {
 	ListenAddr string
 	Proto      string
@@ -30,6 +30,7 @@ func (c *chain) String() string {
 	return fmt.Sprintf("%v->%v %v", c.ListenAddr, c.ToAddr, c.Proto)
 }
 
+// Keep udp session
 type udpSession struct {
 	FromCnn    net.PacketConn
 	FromAddr   net.Addr
@@ -47,10 +48,10 @@ type mgt struct {
 	Chains    []*chain
 	UdpSsns   sync.Map // hash udpSession
 	TcpCnnCnt int64
-	//
+	// stat
 	StatInterval time.Duration
 	UdpTTLSec    int64
-	// 同步
+	// sync
 	WaitCtx context.Context
 	Wg      *sync.WaitGroup
 }
@@ -173,13 +174,13 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
 					break
 				}
 			} else {
-				log.Printf("forwardUDP %v Read err=%v", us.OwnerChain, err)
+				log.Printf("forwardUDP %v Read err= %v", us.OwnerChain, err)
 				break
 			}
 		} else {
 			_, err = us.FromCnn.WriteTo(b[:n], us.FromAddr)
 			if err != nil {
-				log.Printf("forwardUDP %v WriteTo err=%v", us.OwnerChain, err)
+				log.Printf("forwardUDP %v WriteTo err= %v", us.OwnerChain, err)
 				break
 			}
 		}
@@ -202,7 +203,7 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 	for {
 		cnn, err := sn.Accept()
 		if err != nil {
-			log.Printf("setupTCPChain %v Accept err=%v", c, err)
+			log.Printf("setupTCPChain %v Accept err= %v", c, err)
 			break
 		}
 
@@ -210,7 +211,7 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 		d := new(net.Dialer)
 		toCnn, err := d.DialContext(mgt0.WaitCtx, c.Proto, c.ToAddr)
 		if err != nil {
-			log.Printf("dial %v %v err=%v", c.Proto, c.ToAddr, err)
+			log.Printf("dial %v %v err= %v", c.Proto, c.ToAddr, err)
 			continue
 		}
 		log.Printf("setupTCPChain got cnn pair %v %v->%v==>%v->%v", c.Proto,
@@ -225,11 +226,12 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 	}
 	close(closeChan)
 }
+
 func newUdpSsn(mgt0 *mgt, c *chain, fromAddr net.Addr, fromCnn net.PacketConn) *udpSession {
 	d := new(net.Dialer)
 	toCnn, err := d.DialContext(mgt0.WaitCtx, c.Proto, c.ToAddr)
 	if err != nil {
-		log.Printf("dail %v err=%v", c.ToAddr, err)
+		log.Printf("dail %v err= %v", c.ToAddr, err)
 		return nil
 	}
 	u := &udpSession{}
@@ -240,6 +242,7 @@ func newUdpSsn(mgt0 *mgt, c *chain, fromAddr net.Addr, fromCnn net.PacketConn) *
 	u.OwnerChain = c
 	return u
 }
+
 func setupUDPChain(mgt0 *mgt, c *chain) {
 	var err error
 	log.Printf("setup chain for %v", c)
@@ -254,7 +257,7 @@ func setupUDPChain(mgt0 *mgt, c *chain) {
 	for {
 		rsize, raddr, err := pktCnn.ReadFrom(rbuf)
 		if err != nil {
-			log.Printf("setupUDPChain %v ReadFrom err=%v", c, err)
+			log.Printf("setupUDPChain %v ReadFrom err= %v", c, err)
 			break
 		}
 		var oldUdpSsn *udpSession
@@ -288,7 +291,7 @@ func setupUDPChain(mgt0 *mgt, c *chain) {
 		_, err = oldUdpSsn.ToCnn.Write(rbuf[:rsize])
 		atomic.StoreInt64(&oldUdpSsn.WriteTime, time.Now().Unix())
 		if err != nil {
-			log.Printf("setupUDPChain ToCnn Write err=%v", err)
+			log.Printf("setupUDPChain ToCnn Write err= %v", err)
 			_ = oldUdpSsn.Close()
 			mgt0.UdpSsns.Delete(raddr.String())
 		}
@@ -297,6 +300,7 @@ func setupUDPChain(mgt0 *mgt, c *chain) {
 }
 
 /**
+放弃的一种配置文件格式
 rinetd.toml sample
 [[Chans]]
 ListenAddr="0.0.0.0:5678"
@@ -316,7 +320,6 @@ parser sample
 
 func setupChains(mgt0 *mgt, cancel context.CancelFunc) {
 	setupSignal(mgt0, cancel)
-
 	if len(mgt0.Chains) == 0 {
 		log.Printf("no chains to work")
 		cancel()
@@ -338,7 +341,7 @@ func setupChains(mgt0 *mgt, cancel context.CancelFunc) {
 func listChainsFromConf(filename string, mgt0 *mgt) {
 	fr, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("read %v err=%v", filename, err)
+		log.Fatalf("read %v err= %v", filename, err)
 	}
 
 	sc := bufio.NewScanner(fr)
@@ -372,7 +375,6 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
 }
 
 func stat(mgt0 *mgt) {
-
 	tc := time.Tick(mgt0.StatInterval)
 loop:
 	for {
@@ -401,7 +403,7 @@ func doWork() {
 
 	_, err = os.Stat(confPath)
 	if err != nil {
-		log.Fatalf("err= %v error of read conf confPath=%v", err, confPath)
+		log.Fatalf("err= %v error of read conf confPath= %v", err, confPath)
 	}
 	listChainsFromConf(confPath, mgt0)
 	// create mgt0.WaitCtx
