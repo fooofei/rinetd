@@ -66,7 +66,6 @@ func (m *mgt) UdpCnnCnt() uint64 {
 }
 
 func setupSignal(mgt0 *mgt, cancel context.CancelFunc) {
-
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt)
 	signal.Notify(sigCh, syscall.SIGTERM)
