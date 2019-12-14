@@ -347,7 +347,7 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
 	for sc.Scan() {
 		t := sc.Text()
 		t = strings.TrimSpace(t)
-		if len(t) <= 0 || t[0] == '#' {
+		if len(t) <= 0 || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
 			continue
 		}
 
