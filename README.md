@@ -1,6 +1,6 @@
 # rinetd
 
-This is a golang version port of linux tool [`rientd`](https://github.com/samhocevar/rinetd).
+This is a golang version port of linux tool [`rinetd`](https://github.com/samhocevar/rinetd).
 
 
 ## Compile
