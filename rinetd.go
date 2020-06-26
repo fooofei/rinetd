@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -183,6 +184,11 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
 					logger.Info("read timeout and aged")
 					break
 				}
+			} else if errors.Is(err, syscall.ECONNREFUSED) {
+				// If peer not UDP listen, then we will recv ICMP
+				// golang will give error net.OpError ECONNREFUSED
+				// we ignore this error
+				continue
 			} else {
 				logger.Error(err, "error read")
 				break
