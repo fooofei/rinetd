@@ -135,14 +135,39 @@ func flatten(kvList ...interface{}) string {
 	return buf.String()
 }
 
+// jsonEncodeKv encode kv pairs to json string
+func jsonEncodeKv(kvList ...interface{}) string {
+	vals := make(map[string]interface{}, len(kvList))
+	for i := 0; i < len(kvList); i += 2 {
+		k, ok := kvList[i].(string)
+		if !ok {
+			panic(fmt.Sprintf("key is not a string: %s", pretty(kvList[i])))
+		}
+		var v interface{}
+		if i+1 < len(kvList) {
+			v = kvList[i+1]
+		}
+		vals[k] = v
+	}
+	encoded, err := JSONMarshal(vals)
+	if err != nil {
+		return err.Error()
+	}
+	return string(encoded)
+}
+
 // JSONMarshal same with json.Marshal but different is
 // JSONMarshal will add '\n' at the tail of value
 func JSONMarshal(t interface{}) ([]byte, error) {
 	buffer := &bytes.Buffer{}
 	encoder := json.NewEncoder(buffer)
-	encoder.SetEscapeHTML(true)
+	encoder.SetEscapeHTML(false)
 	err := encoder.Encode(t)
-	return buffer.Bytes(), err
+	if err != nil {
+		return nil, err
+	}
+	b := buffer.Bytes()
+	return bytes.TrimRight(b, "\n"), nil
 }
 
 func pretty(value interface{}) string {
@@ -159,11 +184,13 @@ func pretty(value interface{}) string {
 
 func (l logger) Info(msg string, kvList ...interface{}) {
 	if l.Enabled() {
-		lvlStr := flatten("level", l.level)
-		msgStr := flatten("msg", msg)
-		fixedStr := flatten(l.values...)
-		userStr := flatten(kvList...)
-		l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, lvlStr, msgStr, fixedStr, userStr))
+		kvs := make([]interface{}, 0)
+		kvs = append(kvs, "level", l.level)
+		kvs = append(kvs, "msg", msg)
+		kvs = append(kvs, l.values...)
+		kvs = append(kvs, kvList...)
+		str := jsonEncodeKv(kvs...)
+		l.output(framesToCaller()+l.depth, fmt.Sprintln("INFO", l.prefix, str))
 	}
 }
 
@@ -172,15 +199,17 @@ func (l logger) Enabled() bool {
 }
 
 func (l logger) Error(err error, msg string, kvList ...interface{}) {
-	msgStr := flatten("msg", msg)
+	kvs := make([]interface{}, 0)
+	kvs = append(kvs, "msg", msg)
 	var loggableErr interface{}
 	if err != nil {
 		loggableErr = err.Error()
 	}
-	errStr := flatten("error", loggableErr)
-	fixedStr := flatten(l.values...)
-	userStr := flatten(kvList...)
-	l.output(framesToCaller()+l.depth, fmt.Sprintln(l.prefix, errStr, msgStr, fixedStr, userStr))
+	kvs = append(kvs, "error", loggableErr)
+	kvs = append(kvs, l.values...)
+	kvs = append(kvs, kvList...)
+	str := jsonEncodeKv(kvs...)
+	l.output(framesToCaller()+l.depth, fmt.Sprintln("ERROR", l.prefix, str))
 }
 
 func (l logger) output(calldepth int, s string) {
