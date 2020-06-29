@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fooofei/rinetd/stdr"
+	"github.com/fooofei/stdr"
 	"github.com/go-logr/logr"
 )
 
