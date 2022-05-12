@@ -30,3 +30,11 @@ You can also write commnet line begin with `#` or `//`.
 
 WARN:The `deny` and `allow` not supported.
 
+
+## 同类软件
+
+https://github.com/go-gost/gost 旧版本 https://github.com/ginuerzh/gost
+
+使用体验：配置文件描述太复杂了 单位面积有效信息量没当前 rinetd 配置的每行一个映射简单
+
+而且也没有看到可以支持配置动态刷新功能
