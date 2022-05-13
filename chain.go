@@ -69,7 +69,7 @@ func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 		ssn := &udpSession{
 			AliveTime: atomic.Value{},
 			TTL:       5 * time.Minute,
-			Ch:        make(chan []byte, 1000),
+			ch:        make(chan []byte, 1000),
 		}
 		ssnMap.Store(addr.String(), ssn)
 
@@ -79,10 +79,10 @@ func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 			defer atomic.AddInt64(&c.SsnCount, -1)
 			defer wg.Done()
 			frontend := &udpSessionFrontend{
-				PktCnn: pktCnn,
-				Addr:   arg0,
-				Ch:     arg2.Ch,
-				Closed: make(chan struct{}),
+				pktCnn: pktCnn,
+				addr:   arg0,
+				ch:     arg2.ch,
+				closed: make(chan struct{}),
 			}
 			handleUdpSession(waitCtx, logger, c, arg2, frontend, arg1)
 			ssnMap.Delete(arg0.String())
@@ -100,14 +100,8 @@ func tryWriteUdpSession(ssnMap *sync.Map, addr net.Addr, body []byte) bool {
 		return false
 	}
 	ssn := ssnVoid.(*udpSession)
-	ssn.Ch <- cloneByteSlice(body)
+	ssn.Write(body)
 	return true
-}
-
-func cloneByteSlice(b []byte) []byte {
-	dst := make([]byte, len(b))
-	copy(dst, b)
-	return dst
 }
 
 func createChainRoutine(waitCtx context.Context, logger logr.Logger, wg *sync.WaitGroup, c *chain) {

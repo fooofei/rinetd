@@ -37,7 +37,6 @@ func readWriteEach(waitCtx context.Context, left io.ReadWriteCloser, right io.Re
 		b := make([]byte, 512*1024)
 		io.CopyBuffer(right, left, b)
 		wg.Done()
-
 	}()
 	// wait read & write close
 	go func() {
