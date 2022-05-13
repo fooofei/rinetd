@@ -92,7 +92,7 @@ func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 // doWork 工作循环，不断的监视文件改动 根据文件实际内容进行 chain 调谐
 func doWork(waitCtx context.Context, logger logr.Logger, filePath string) {
 	var chains []*chain
-	var statInterval = 3 * time.Second
+	var statInterval = time.Minute
 	var chainsCh = make(chan []*chain, 10)
 	var expectChains []*chain
 	var wg = &sync.WaitGroup{}

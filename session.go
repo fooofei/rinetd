@@ -107,8 +107,8 @@ func handleTcpSession(waitCtx context.Context, logger logr.Logger, c *chain, cnn
 		logger.Error(err, "failed dial tcp addr", "addr", c.ToAddr)
 		return
 	}
-	logger = logger.WithValues("1From", cnn.RemoteAddr().String(), "1To", cnn.LocalAddr().String(),
-		"2From", toCnn.LocalAddr().String(), "2To", toCnn.RemoteAddr().String())
+	logger = logger.WithValues("left", fmt.Sprintf("%v to %v", cnn.RemoteAddr().String(), cnn.LocalAddr().String()),
+		"right", fmt.Sprintf("%v to %v", toCnn.LocalAddr().String(), toCnn.RemoteAddr().String()))
 	logger.Info("new connection pair")
 	defer logger.Info("close connection pair")
 	readWriteEach(waitCtx, cnn, toCnn)
@@ -124,9 +124,8 @@ func handleUdpSession(waitCtx context.Context, logger logr.Logger, c *chain, ssn
 		logger.Error(err, "failed dial udp addr", "addr", c.ToAddr)
 		return
 	}
-	logger = logger.WithValues(
-		"1From", frontend.Addr.String(), "1To", frontend.PktCnn.LocalAddr().String(),
-		"2From", toCnn.LocalAddr().String(), "2To", toCnn.RemoteAddr().String())
+	logger = logger.WithValues("left", fmt.Sprintf("%v to %v", frontend.Addr.String(), frontend.PktCnn.LocalAddr().String()),
+		"right", fmt.Sprintf("%v to %v", toCnn.LocalAddr().String(), toCnn.RemoteAddr().String()))
 	logger.Info("new connection pair")
 	defer logger.Info("close connection pair")
 

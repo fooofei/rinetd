@@ -117,6 +117,7 @@ func createChainRoutine(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 
 	f := func() {
 		defer wg.Done()
+		logger = logger.WithValues("chain", c.String())
 		if c.Proto == "tcp" {
 			if err = setupTcpChain(waitCtx, logger, c); err != nil {
 				logger.Error(err, "failed create tcp chain", "chain", c.String())
