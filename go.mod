@@ -1,8 +1,24 @@
 module github.com/fooofei/rinetd
 
-go 1.16
+go 1.18
 
 require (
-	github.com/fooofei/stdr v0.2.0
-	github.com/go-logr/logr v0.4.0
+	github.com/cockroachdb/errors v1.9.0
+	github.com/fsnotify/fsnotify v1.5.4
+	github.com/go-logr/logr v1.2.3
+	github.com/go-logr/stdr v1.2.2
+)
+
+require (
+	github.com/cockroachdb/logtags v0.0.0-20211118104740-dabe8e521a4f // indirect
+	github.com/cockroachdb/redact v1.1.3 // indirect
+	github.com/getsentry/sentry-go v0.13.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/google/go-cmp v0.5.7 // indirect
+	github.com/kr/pretty v0.3.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/rogpeppe/go-internal v1.8.1 // indirect
+	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
+	golang.org/x/xerrors v0.0.0-20220411194840-2f41105eb62f // indirect
 )
