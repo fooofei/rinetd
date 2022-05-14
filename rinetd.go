@@ -17,8 +17,7 @@ import (
 
 // worked like `rinetd`.
 
-// 可以通过 WaitCtx.Done 关闭 Closer
-// 可以通过 返回值 chan 关闭 Closer
+// closeWhenContext will close c when context done or close returned channel
 func closeWhenContext(waitCtx context.Context, c io.Closer) chan struct{} {
 	cc := make(chan struct{}, 1)
 	go func() {
@@ -31,29 +30,11 @@ func closeWhenContext(waitCtx context.Context, c io.Closer) chan struct{} {
 	return cc
 }
 
-/**
-放弃的一种配置文件格式
-rinetd.toml sample
-[[Chans]]
-ListenAddr="0.0.0.0:5678"
-Proto="tcp"
-PeerAddr="127.0.0.1:8100"
-
-[[Chans]]
-ListenAddr="0.0.0.0:5679"
-Proto="tcp"
-PeerAddr="127.0.0.1:8200"
-
-parser sample
-tcp 0.0.0.0:5678 127.0.0.1:8100
-
-用上面的都太复杂了
-*/
-
-// reconcileListeners 将会调协
-// curChains 是当前使用的 chain
-// expectChains 是从配置文件读取的最新的 chain
-// 返回合并过的 chain
+// reconcileListeners will make listens as config file expected
+// it will close deleted listeners, stay keeped listeners open, create new listeners
+// arg curChains is current chains
+// arg expectChains is the expect chains read from config file
+// return the final chains
 func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.WaitGroup,
 	curChains []*chain, expectChains []*chain) []*chain {
 	var createdCnt int64
@@ -78,7 +59,7 @@ func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 		}
 	}
 
-	// 老的老化掉
+	// close delete chains
 	for _, c := range chains {
 		c.Cancel()
 		closedCnt += 1
@@ -89,7 +70,7 @@ func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 	return mergedChains
 }
 
-// doWork 工作循环，不断的监视文件改动 根据文件实际内容进行 chain 调谐
+// doWork loop in stat summary + watch config file + reconcile listeners
 func doWork(waitCtx context.Context, logger logr.Logger, filePath string) {
 	var chains []*chain
 	var statInterval = time.Minute
@@ -100,13 +81,13 @@ func doWork(waitCtx context.Context, logger logr.Logger, filePath string) {
 	tc := time.NewTicker(statInterval)
 	defer tc.Stop()
 
-	cfgWrk, cfgClose, err := watchConfig(waitCtx, logger, filePath, chainsCh)
+	cfgWrk, cfgClose, err := watchConfig(filePath, chainsCh)
 	if err != nil {
 		logger.Error(err, "failed create watch config")
 		return
 	}
 	defer cfgClose()
-	go cfgWrk()
+	go cfgWrk(waitCtx, logger)
 
 loop:
 	for {
@@ -134,7 +115,7 @@ func main() {
 	confPath := filepath.Join(cur, "rinetd.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {
-		logger.Error(err, "error config file, not exists", "filepath", confPath)
+		logger.Error(err, "file stat config file", "filePath", confPath)
 		return
 	}
 	//

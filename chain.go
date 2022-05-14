@@ -127,7 +127,7 @@ func createChainRoutine(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 	go f()
 }
 
-// forward TCP/UDP from ListenAddr to ToAddr
+// chain forward TCP/UDP from ListenAddr to ToAddr
 type chain struct {
 	ListenAddr string
 	Proto      string

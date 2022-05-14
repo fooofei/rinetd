@@ -6,11 +6,10 @@ import (
 	"sync"
 )
 
-// readWriteEach 把两个 ReadWriter 互相连接起来，进行转发
-// 当双向都无法读写时 函数才退出
+// readWriteEach bind two ReadWriter which we called left and right
+// when both cannot left -> right and right -> left we exit this function
 //
-// 有的人是双向中任何一个方向断开，都会断开双向
-// 代码这样写, 技巧：还使用到了 sync.Once 只运行 1 次。
+// someone will write:
 // var once sync.Once
 // go func() {
 // 	io.Copy(connection, bashf)

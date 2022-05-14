@@ -10,9 +10,9 @@ import (
 	"github.com/go-logr/logr"
 )
 
-// chain 可以有很多 session
+// chain include many session
 
-// udp 会话是  frontend <-> backend 之间传递
+// udp session include  frontend <-> backend
 
 type udpSession struct {
 	AliveTime atomic.Value
@@ -26,7 +26,7 @@ func (u *udpSession) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// udpSessionBackend 是右边的会话
+// udpSessionBackend is left session in chain
 type udpSessionBackend struct {
 	parentSsn *udpSession
 	frontend  *udpSessionFrontend
@@ -37,7 +37,7 @@ func (u udpSessionBackend) Close() error {
 	return u.toCnn.Close()
 }
 
-// Read 读取 udp 上的数据，如果超时了 要判断是否这个链路上没有数据存活
+// Read read data from udp session, close the frontend and backend session when ttl arrived
 func (u udpSessionBackend) Read(p []byte) (int, error) {
 	for {
 		// add one more second to make sure  now - alive time > ttl
@@ -64,7 +64,7 @@ func (u udpSessionBackend) continueReadWhenErr(err error) bool {
 		return false
 	}
 
-	// 仅仅不需要退出的时候 才不退出，其他情况都退出
+	// return true only if ttl not arrived
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 		// ttl arrived
 		whenAlive := whenAliveVoid.(time.Time)
@@ -86,7 +86,7 @@ func (u udpSessionBackend) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// udpSessionFrontend 是左边的会话
+// udpSessionFrontend is the left session
 type udpSessionFrontend struct {
 	pktCnn net.PacketConn
 	addr   net.Addr

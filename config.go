@@ -56,8 +56,8 @@ func parseConfigFile(filename string) ([]*chain, error) {
 	return parseConfig(fr)
 }
 
-// watchConfig 当配置文件发生变化时，读取配置文件，解析的结果放到 ch 队列中
-func watchConfig(waitCtx context.Context, logger logr.Logger, filePath string, ch chan []*chain) (func(), func(), error) {
+// watchConfig when config file changed, re-parse config file, push result to channel
+func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Context, logger logr.Logger), func(), error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, nil, err
@@ -66,7 +66,7 @@ func watchConfig(waitCtx context.Context, logger logr.Logger, filePath string, c
 		watcher.Close()
 		return nil, nil, err
 	}
-	workFunc := func() {
+	workFunc := func(waitCtx context.Context, logger logr.Logger) {
 		var event fsnotify.Event
 		var ok bool
 		var result []*chain
@@ -75,14 +75,14 @@ func watchConfig(waitCtx context.Context, logger logr.Logger, filePath string, c
 	loop:
 		for {
 			select {
-			case <-tm.C: // 当收到 event 时不能直接读取文件，而是通过 timer 读取文件 汇聚连续发生的 event
+			case <-tm.C: // use the timer for re-read confile file instead file watch events
 				if result, err = parseConfigFile(filePath); err != nil {
 					logger.Error(err, "failed parse config file", "fileName", event.Name)
 				} else {
 					ch <- result
 				}
-			// 一次写会通知两次 需要进行聚合
-			// 官方收到很多 issue 但是没有解答
+			// file changed once we will got twice events
+			// issues:
 			// https://github.com/fsnotify/fsnotify/issues/122
 			// https://github.com/fsnotify/fsnotify/issues/206
 			// https://github.com/fsnotify/fsnotify/issues/324
