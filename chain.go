@@ -28,9 +28,8 @@ func setupTcpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 		if cnn, err = sn.Accept(); err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				err = nil
-			} else {
-				err = cerrors.WithMessage(err, "failed call Accept()")
 			}
+			err = cerrors.WithMessage(err, "failed call Accept()")
 			break
 		}
 		wg.Add(1)
@@ -63,6 +62,9 @@ func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 	buf = make([]byte, 128*1024)
 	for {
 		if size, addr, err = pktCnn.ReadFrom(buf); err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				err = nil
+			}
 			err = cerrors.WithMessage(err, "failed call ReadFrom()")
 			break
 		}
