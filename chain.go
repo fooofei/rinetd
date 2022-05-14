@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -20,12 +21,16 @@ func setupTcpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 	var wg = &sync.WaitGroup{}
 
 	if sn, err = lc.Listen(waitCtx, c.Proto, c.ListenAddr); err != nil {
-		return cerrors.CombineErrors(fmt.Errorf("failed listen tcp addr '%s' of '%s'", c.ListenAddr, c.String()), err)
+		return cerrors.WithMessagef(err, "failed listen tcp addr '%s' of '%s'", c.ListenAddr, c.String())
 	}
 	closeCh := closeWhenContext(waitCtx, sn)
 	for {
 		if cnn, err = sn.Accept(); err != nil {
-			err = cerrors.CombineErrors(fmt.Errorf("failed call Accept()"), err)
+			if errors.Is(err, net.ErrClosed) {
+				err = nil
+			} else {
+				err = cerrors.WithMessage(err, "failed call Accept()")
+			}
 			break
 		}
 		wg.Add(1)
@@ -52,13 +57,13 @@ func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 	var ssnMap = &sync.Map{}
 
 	if pktCnn, err = lc.ListenPacket(waitCtx, c.Proto, c.ListenAddr); err != nil {
-		return cerrors.CombineErrors(fmt.Errorf("failed listen udp addr '%s' of '%s'", c.ListenAddr, c.String()), err)
+		return cerrors.WithMessagef(err, "failed listen udp addr '%s' of '%s'", c.ListenAddr, c.String())
 	}
 	closeCh := closeWhenContext(waitCtx, pktCnn)
 	buf = make([]byte, 128*1024)
 	for {
 		if size, addr, err = pktCnn.ReadFrom(buf); err != nil {
-			err = cerrors.CombineErrors(fmt.Errorf("failed call ReadFrom()"), err)
+			err = cerrors.WithMessage(err, "failed call ReadFrom()")
 			break
 		}
 

@@ -50,7 +50,7 @@ func parseConfig(r io.Reader) ([]*chain, error) {
 func parseConfigFile(filename string) ([]*chain, error) {
 	fr, err := os.Open(filename)
 	if err != nil {
-		return nil, cerrors.CombineErrors(fmt.Errorf("failed open file '%s'", filename), err)
+		return nil, cerrors.WithMessagef(err, "failed open file '%s'", filename)
 	}
 	defer fr.Close()
 	return parseConfig(fr)
