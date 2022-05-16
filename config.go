@@ -99,6 +99,11 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 				} else if event.Op&fsnotify.Create == fsnotify.Create {
 					logger.Info("got file create", "fileName", event.Name)
 					tm.Reset(2 * time.Second)
+				} else if event.Op&fsnotify.Remove == fsnotify.Remove {
+					// when file is removed, we watch it back
+					// this occurs when vi xx.conf, we will got RENAME + CHMOD + REMOVE events
+					err = watcher.Add(filePath)
+					logger.Info("re-watch it when it Remove", "filePath", filePath, "error", err)
 				}
 			case err, ok = <-watcher.Errors:
 				if !ok {
