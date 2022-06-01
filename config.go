@@ -72,6 +72,7 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 		var ok bool
 		var result []*chain
 		var tm = timer.New(time.Second)
+		defer tm.Stop()
 
 	loop:
 		for {
