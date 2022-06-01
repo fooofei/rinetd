@@ -10,6 +10,7 @@ import (
 	"time"
 
 	cerrors "github.com/cockroachdb/errors"
+	"github.com/fooofei/timer/go/timer"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 )
@@ -70,12 +71,13 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 		var event fsnotify.Event
 		var ok bool
 		var result []*chain
-		var tm = time.NewTimer(time.Second)
+		var tm = timer.New(time.Second)
 
 	loop:
 		for {
 			select {
-			case <-tm.C: // use the timer for re-read confile file instead file watch events
+			case <-tm.Wait(): // use the timer for re-read confile file instead file watch events
+				tm.SetUnActive()
 				if result, err = parseConfigFile(filePath); err != nil {
 					logger.Error(err, "failed parse config file", "fileName", event.Name)
 				} else {
@@ -93,12 +95,14 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 					logger.Error(err, "exit watch config")
 					return
 				}
+				// all event will be set timer for read
+				// because we cannot trust the events
+				// use vi modify once, we will receive three events RENAME+CHMOD+REMOVE， it will not trigger read file again
+				tm.Reset(2 * time.Second)
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					logger.Info("got file changed", "fileName", event.Name)
-					tm.Reset(2 * time.Second)
 				} else if event.Op&fsnotify.Create == fsnotify.Create {
 					logger.Info("got file create", "fileName", event.Name)
-					tm.Reset(2 * time.Second)
 				} else if event.Op&fsnotify.Remove == fsnotify.Remove {
 					// when file is removed, we watch it back
 					// this occurs when vi xx.conf, we will got RENAME + CHMOD + REMOVE events
