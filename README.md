@@ -47,3 +47,8 @@ https://github.com/go-gost/gost 旧版本 https://github.com/ginuerzh/gost
 
 而且也没有看到可以支持配置动态刷新功能。（v2 版本根本不支持全局配置文件，而是单个功能的配置文件，
 单个功能的配置文件里可以进行 reload 功能开启）
+
+https://github.com/inlets/mixctl 
+
+使用体验：阅读代码发现代码没有我们优雅，没有增加 io.Copy Buffer大小，没有优雅关闭TCP单向通道。
+没有UDP。rinetd可以转发UDP。
