@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"io"
+	"fmt"
 	stdlog "log"
 	"os"
 	"os/signal"
@@ -15,20 +15,7 @@ import (
 	"github.com/go-logr/stdr"
 )
 
-// worked like `rinetd`.
-
-// closeWhenContext will close c when context done or close returned channel
-func closeWhenContext(waitCtx context.Context, c io.Closer) chan struct{} {
-	cc := make(chan struct{}, 1)
-	go func() {
-		select {
-		case <-waitCtx.Done():
-		case <-cc:
-		}
-		c.Close()
-	}()
-	return cc
-}
+// worked like `rinetd` https://github.com/samhocevar/rinetd.
 
 // reconcileListeners will make listens as config file expected
 // it will close deleted listeners, stay keeped listeners open, create new listeners
@@ -41,26 +28,26 @@ func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 	var keepedCnt int64
 	var closedCnt int64
 
-	chains := make(map[string]*chain, len(curChains))
+	var chainMap = make(map[string]*chain, len(curChains))
 	for _, c := range curChains {
-		chains[c.String()] = c
+		chainMap[c.String()] = c
 	}
 	var mergedChains []*chain
 	for _, c := range expectChains {
-		findChain, ok := chains[c.String()]
+		findChain, ok := chainMap[c.String()]
 		if !ok {
 			createChainRoutine(waitCtx, logger, wg, c)
 			mergedChains = append(mergedChains, c)
 			createdCnt += 1
 		} else {
 			mergedChains = append(mergedChains, findChain)
-			delete(chains, c.String())
+			delete(chainMap, c.String())
 			keepedCnt += 1
 		}
 	}
 
-	// close delete chains
-	for _, c := range chains {
+	// close delete chainMap
+	for _, c := range chainMap {
 		c.Cancel()
 		closedCnt += 1
 	}
@@ -70,25 +57,26 @@ func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 	return mergedChains
 }
 
-// doWork loop in stat summary + watch config file + reconcile listeners
-func doWork(waitCtx context.Context, logger logr.Logger, filePath string) {
+// workLoop loop in stat summary + watch config file + reconcile listeners
+func workLoop(waitCtx context.Context, logger logr.Logger, filePath string) {
 	var chains []*chain
 	var statInterval = time.Minute
 	var chainsCh = make(chan []*chain, 10)
 	var expectChains []*chain
 	var wg = &sync.WaitGroup{}
 
-	tc := time.NewTicker(statInterval)
+	var tc = time.NewTicker(statInterval)
 	defer tc.Stop()
 
-	cfgWrk, cfgClose, err := watchConfig(filePath, chainsCh)
+	var watchConfigLoopFunc, closeConfigWatch, err = watchConfig(filePath, chainsCh)
 	if err != nil {
 		logger.Error(err, "failed create watch config")
 		return
 	}
-	defer cfgClose()
-	go cfgWrk(waitCtx, logger)
+	defer closeConfigWatch()
+	go watchConfigLoopFunc(waitCtx, logger)
 
+	// start stat
 loop:
 	for {
 		select {
@@ -106,8 +94,8 @@ loop:
 
 func main() {
 	// setup logger in main routine
-	logger := stdr.New(stdlog.New(os.Stderr, "", stdlog.Lshortfile|stdlog.LstdFlags))
-	logger = logger.WithValues("pid", os.Getpid())
+	logger := stdr.New(stdlog.New(os.Stderr, fmt.Sprintf("pid-%v ", os.Getpid()), stdlog.Lshortfile|stdlog.LstdFlags))
+	stdr.SetVerbosity(10)
 	//
 	var err error
 	fullPath, _ := os.Executable()
@@ -121,6 +109,6 @@ func main() {
 	//
 	waitCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	doWork(waitCtx, logger, confPath)
+	workLoop(waitCtx, logger, confPath)
 	logger.Info("main exit")
 }

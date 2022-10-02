@@ -17,5 +17,5 @@ func summary(logger logr.Logger, chains []*chain) {
 			udpCnt += atomic.LoadInt64(&c.SsnCount)
 		}
 	}
-	logger.Info("stat count", "tcpSession", tcpCnt, "udpSession", udpCnt, "chainCount", len(chains))
+	logger.V(9).Info("stat count", "tcpSession", tcpCnt, "udpSession", udpCnt, "chainCount", len(chains))
 }

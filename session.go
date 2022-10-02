@@ -42,7 +42,7 @@ func (u udpSessionBackend) Read(p []byte) (int, error) {
 	for {
 		// add one more second to make sure  now - alive time > ttl
 		u.toCnn.SetReadDeadline(time.Now().Add(u.parentSsn.TTL).Add(time.Second))
-		n, err := u.toCnn.Read(p)
+		var n, err = u.toCnn.Read(p)
 		u.toCnn.SetReadDeadline(time.Time{})
 
 		if err == nil {
@@ -57,9 +57,9 @@ func (u udpSessionBackend) Read(p []byte) (int, error) {
 }
 
 func (u udpSessionBackend) continueReadWhenErr(err error) bool {
-	now := time.Now()
+	var now = time.Now()
 
-	whenAliveVoid := u.parentSsn.AliveTime.Load()
+	var whenAliveVoid = u.parentSsn.AliveTime.Load()
 	if whenAliveVoid == nil {
 		return false
 	}
@@ -67,7 +67,7 @@ func (u udpSessionBackend) continueReadWhenErr(err error) bool {
 	// return true only if ttl not arrived
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 		// ttl arrived
-		whenAlive := whenAliveVoid.(time.Time)
+		var whenAlive = whenAliveVoid.(time.Time)
 		if now.After(whenAlive) && now.Sub(whenAlive) < u.parentSsn.TTL {
 			return true
 		}
@@ -81,7 +81,7 @@ func (u udpSessionBackend) continueReadWhenErr(err error) bool {
 }
 
 func (u udpSessionBackend) Write(p []byte) (int, error) {
-	n, err := u.toCnn.Write(p)
+	var n, err = u.toCnn.Write(p)
 	u.parentSsn.AliveTime.Store(time.Now())
 	return n, err
 }
@@ -122,7 +122,7 @@ func handleTcpSession(waitCtx context.Context, logger logr.Logger, c *chain, cnn
 	var toCnn net.Conn
 
 	// connect peer
-	d := &net.Dialer{}
+	var d = &net.Dialer{}
 	if toCnn, err = d.DialContext(waitCtx, c.Proto, c.ToAddr); err != nil {
 		logger.Error(err, "failed dial tcp addr", "addr", c.ToAddr)
 		return
@@ -139,7 +139,7 @@ func handleUdpSession(waitCtx context.Context, logger logr.Logger, c *chain, ssn
 	var err error
 	var toCnn net.Conn
 
-	d := &net.Dialer{}
+	var d = &net.Dialer{}
 	if toCnn, err = d.DialContext(waitCtx, c.Proto, c.ToAddr); err != nil {
 		logger.Error(err, "failed dial udp addr", "addr", c.ToAddr)
 		return
@@ -149,7 +149,7 @@ func handleUdpSession(waitCtx context.Context, logger logr.Logger, c *chain, ssn
 	logger.Info("new udp session pair")
 	defer logger.Info("close udp session pair")
 
-	backend := udpSessionBackend{
+	var backend = udpSessionBackend{
 		parentSsn: ssn,
 		toCnn:     toCnn,
 		frontend:  frontend,

@@ -7,49 +7,47 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	cerrors "github.com/cockroachdb/errors"
-	"github.com/fooofei/timer/go/timer"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 )
 
 func parseConfig(r io.Reader) ([]*chain, error) {
-	var result []*chain
+	var resultList []*chain
 
-	sc := bufio.NewScanner(r)
-	for sc.Scan() {
-		t := sc.Text()
-		t = strings.TrimSpace(t)
-		if len(t) <= 0 || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
+	var scanner = bufio.NewScanner(r)
+	for scanner.Scan() {
+		var textLine = scanner.Text()
+		textLine = strings.TrimSpace(textLine)
+		if len(textLine) <= 0 || strings.HasPrefix(textLine, "#") || strings.HasPrefix(textLine, "//") {
 			continue
 		}
 
-		ar := strings.Fields(t)
-		if len(ar) < 3 {
+		var lineFieldList = strings.Fields(textLine)
+		if len(lineFieldList) < 3 {
 			continue
 		}
-		arValid := make([]string, 0)
-		for _, e := range ar {
-			e = strings.TrimSpace(e)
-			if len(e) > 0 {
-				arValid = append(arValid, e)
+		var validFieldList = make([]string, 0)
+		for _, field := range lineFieldList {
+			field = strings.TrimSpace(field)
+			if len(field) > 0 {
+				validFieldList = append(validFieldList, field)
 			}
 		}
-		if len(arValid) > 2 {
+		if len(validFieldList) > 2 {
 			v := &chain{}
-			v.Proto = strings.ToLower(arValid[0])
-			v.ListenAddr = arValid[1]
-			v.ToAddr = arValid[2]
-			result = append(result, v)
+			v.Proto = strings.ToLower(validFieldList[0])
+			v.ListenAddr = validFieldList[1]
+			v.ToAddr = validFieldList[2]
+			resultList = append(resultList, v)
 		}
 	}
-	return result, nil
+	return resultList, nil
 }
 
 func parseConfigFile(filename string) ([]*chain, error) {
-	fr, err := os.Open(filename)
+	var fr, err = os.Open(filename)
 	if err != nil {
 		return nil, cerrors.WithMessagef(err, "failed open file '%s'", filename)
 	}
@@ -59,7 +57,15 @@ func parseConfigFile(filename string) ([]*chain, error) {
 
 // watchConfig when config file changed, re-parse config file, push result to channel
 func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Context, logger logr.Logger), func(), error) {
-	watcher, err := fsnotify.NewWatcher()
+	if result, err := parseConfigFile(filePath); err != nil {
+		return nil, nil, cerrors.WithMessagef(err, "failed parse config file")
+	} else {
+		ch <- result
+	}
+	var stringOfEvent = func(e fsnotify.Event) string {
+		return fmt.Sprintf("%s: %s", e.Op.String(), e.Name)
+	}
+	var watcher, err = NewSafeWatcher()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -67,56 +73,34 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 		watcher.Close()
 		return nil, nil, err
 	}
-	workFunc := func(waitCtx context.Context, logger logr.Logger) {
-		var event fsnotify.Event
+	watchLoopFunc := func(waitCtx context.Context, logger logr.Logger) {
+		var eventList []fsnotify.Event
 		var ok bool
 		var result []*chain
-		var tm = timer.New(time.Second)
-		defer tm.Stop()
-
 	loop:
 		for {
 			select {
-			case <-tm.Wait(): // use the timer for re-read confile file instead file watch events
-				tm.SetUnActive()
+			case eventList, ok = <-watcher.Events:
+				for _, e := range eventList {
+					logger.Info("got event", "event", stringOfEvent(e))
+				}
+				if !ok {
+					err = fmt.Errorf("closed chan of watcher.Events channel, not receive error")
+					logger.Error(err, "exit watch config")
+					return
+				}
 				if result, err = parseConfigFile(filePath); err != nil {
-					logger.Error(err, "failed parse config file", "fileName", event.Name)
+					logger.Error(err, "failed parse config file")
 				} else {
 					ch <- result
 				}
-			// file changed once we will got twice events
-			// issues:
-			// https://github.com/fsnotify/fsnotify/issues/122
-			// https://github.com/fsnotify/fsnotify/issues/206
-			// https://github.com/fsnotify/fsnotify/issues/324
-			case event, ok = <-watcher.Events:
-				logger.Info("got events", "event", event.String())
-				if !ok {
-					err = fmt.Errorf("closed chan of watcher.Events, not receive error")
-					logger.Error(err, "exit watch config")
-					return
-				}
-				// all event will be set timer for read
-				// because we cannot trust the events
-				// use vi modify once, we will receive three events RENAME+CHMOD+REMOVE， it will not trigger read file again
-				tm.Reset(2 * time.Second)
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					logger.Info("got file changed", "fileName", event.Name)
-				} else if event.Op&fsnotify.Create == fsnotify.Create {
-					logger.Info("got file create", "fileName", event.Name)
-				} else if event.Op&fsnotify.Remove == fsnotify.Remove {
-					// when file is removed, we watch it back
-					// this occurs when vi xx.conf, we will got RENAME + CHMOD + REMOVE events
-					err = watcher.Add(filePath)
-					logger.Info("re-watch it when it Remove", "filePath", filePath, "error", err)
-				}
 			case err, ok = <-watcher.Errors:
 				if !ok {
-					err = fmt.Errorf("closed chan of watcher.Errors, not receive error")
+					err = fmt.Errorf("closed chan of watcher.Errors channel, not receive error")
 					logger.Error(err, "exit watch config")
 					return
 				}
-				logger.Error(err, "receive error from watcher.Errors")
+				logger.Error(err, "receive error from watcher.Errors channel")
 			case <-waitCtx.Done():
 				logger.Info("exit watch config for context done")
 				break loop
@@ -126,5 +110,5 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 	closeFunc := func() {
 		watcher.Close()
 	}
-	return workFunc, closeFunc, nil
+	return watchLoopFunc, closeFunc, nil
 }
