@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	cerrors "github.com/cockroachdb/errors"
 	"github.com/go-logr/logr"
 )
 
@@ -21,15 +20,16 @@ func setupTcpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 	var wg = &sync.WaitGroup{}
 
 	if sn, err = lc.Listen(waitCtx, c.Proto, c.ListenAddr); err != nil {
-		return cerrors.WithMessagef(err, "failed listen tcp addr '%s' of '%s'", c.ListenAddr, c.String())
+		return fmt.Errorf("failed listen tcp addr '%s' of '%s' with error %w", c.ListenAddr, c.String(), err)
 	}
-	closeCh := closeWhenContext(waitCtx, sn)
+	var closeCh = closeWhenContext(waitCtx, sn)
 	for {
 		if cnn, err = sn.Accept(); err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				err = nil
+			} else {
+				err = fmt.Errorf("failed call Accept() with error %w", err)
 			}
-			err = cerrors.WithMessage(err, "failed call Accept()")
 			break
 		}
 		wg.Add(1)
@@ -56,16 +56,17 @@ func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 	var ssnMap = &sync.Map{}
 
 	if pktCnn, err = lc.ListenPacket(waitCtx, c.Proto, c.ListenAddr); err != nil {
-		return cerrors.WithMessagef(err, "failed listen udp addr '%s' of '%s'", c.ListenAddr, c.String())
+		return fmt.Errorf("failed listen udp addr '%s' of '%s' with error %w", c.ListenAddr, c.String(), err)
 	}
-	closeCh := closeWhenContext(waitCtx, pktCnn)
+	var closeCh = closeWhenContext(waitCtx, pktCnn)
 	buf = make([]byte, 128*1024)
 	for {
 		if size, addr, err = pktCnn.ReadFrom(buf); err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				err = nil
+			} else {
+				err = fmt.Errorf("failed call ReadFrom() with error %w", err)
 			}
-			err = cerrors.WithMessage(err, "failed call ReadFrom()")
 			break
 		}
 
@@ -73,7 +74,7 @@ func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 			continue
 		}
 
-		ssn := &udpSession{
+		var ssn = &udpSession{
 			AliveTime: atomic.Value{},
 			TTL:       5 * time.Minute,
 			ch:        make(chan []byte, 1000),
@@ -116,7 +117,7 @@ func createChainRoutine(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 
 	waitCtx, c.Cancel = context.WithCancel(waitCtx)
 
-	f := func() {
+	var f = func() {
 		defer wg.Done()
 		logger = logger.WithValues("chain", c.String())
 		if c.Proto == "tcp" {

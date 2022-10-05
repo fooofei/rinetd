@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	cerrors "github.com/cockroachdb/errors"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 )
@@ -49,7 +48,7 @@ func parseConfig(r io.Reader) ([]*chain, error) {
 func parseConfigFile(filename string) ([]*chain, error) {
 	var fr, err = os.Open(filename)
 	if err != nil {
-		return nil, cerrors.WithMessagef(err, "failed open file '%s'", filename)
+		return nil, fmt.Errorf("failed open file '%s' with error %w", filename, err)
 	}
 	defer fr.Close()
 	return parseConfig(fr)
@@ -58,7 +57,7 @@ func parseConfigFile(filename string) ([]*chain, error) {
 // watchConfig when config file changed, re-parse config file, push result to channel
 func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Context, logger logr.Logger), func(), error) {
 	if result, err := parseConfigFile(filePath); err != nil {
-		return nil, nil, cerrors.WithMessagef(err, "failed parse config file")
+		return nil, nil, fmt.Errorf("failed parse config file with error %w", err)
 	} else {
 		ch <- result
 	}
