@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
+	"golang.org/x/exp/slog"
 )
 
-func setupTcpChain(waitCtx context.Context, logger logr.Logger, c *chain) error {
+func setupTcpChain(waitCtx context.Context, logger *slog.Logger, c *chain) error {
 	var err error
 	var lc net.ListenConfig
 	var sn net.Listener
@@ -45,7 +45,7 @@ func setupTcpChain(waitCtx context.Context, logger logr.Logger, c *chain) error 
 	return err
 }
 
-func setupUdpChain(waitCtx context.Context, logger logr.Logger, c *chain) error {
+func setupUdpChain(waitCtx context.Context, logger *slog.Logger, c *chain) error {
 	var lc net.ListenConfig
 	var err error
 	var pktCnn net.PacketConn
@@ -112,22 +112,22 @@ func tryWriteUdpSession(ssnMap *sync.Map, addr net.Addr, body []byte) bool {
 	return true
 }
 
-func createChainRoutine(waitCtx context.Context, logger logr.Logger, wg *sync.WaitGroup, c *chain) {
+func createChainRoutine(waitCtx context.Context, logger *slog.Logger, wg *sync.WaitGroup, c *chain) {
 	var err error
 
 	waitCtx, c.Cancel = context.WithCancel(waitCtx)
 
 	var f = func() {
 		defer wg.Done()
-		logger = logger.WithValues("chain", c.String())
+		logger = logger.With("chain", c.String())
 		if c.Proto == "tcp" {
 			if err = setupTcpChain(waitCtx, logger, c); err != nil {
-				logger.Error(err, "failed create tcp chain", "chain", c.String())
+				logger.Error("failed create tcp chain", "chain", c.String(), "error", err)
 			}
 		}
 		if c.Proto == "udp" {
 			if err = setupUdpChain(waitCtx, logger, c); err != nil {
-				logger.Error(err, "failed create udp chain", "chain", c.String())
+				logger.Error("failed create udp chain", "chain", c.String(), "error", err)
 			}
 		}
 	}

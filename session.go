@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
+	"golang.org/x/exp/slog"
 )
 
 // chain include many session
@@ -117,34 +117,34 @@ func (u *udpSessionFrontend) Write(p []byte) (int, error) {
 	return u.pktCnn.WriteTo(p, u.addr)
 }
 
-func handleTcpSession(waitCtx context.Context, logger logr.Logger, c *chain, cnn net.Conn) {
+func handleTcpSession(waitCtx context.Context, logger *slog.Logger, c *chain, cnn net.Conn) {
 	var err error
 	var toCnn net.Conn
 
 	// connect peer
 	var d = &net.Dialer{}
 	if toCnn, err = d.DialContext(waitCtx, c.Proto, c.ToAddr); err != nil {
-		logger.Error(err, "failed dial tcp addr", "addr", c.ToAddr)
+		logger.Error("failed dial tcp addr", "addr", c.ToAddr, "error", err)
 		return
 	}
-	logger = logger.WithValues("left", fmt.Sprintf("%v to %v", cnn.RemoteAddr().String(), cnn.LocalAddr().String()),
+	logger = logger.With("left", fmt.Sprintf("%v to %v", cnn.RemoteAddr().String(), cnn.LocalAddr().String()),
 		"right", fmt.Sprintf("%v to %v", toCnn.LocalAddr().String(), toCnn.RemoteAddr().String()))
 	logger.Info("new tcp session pair")
 	defer logger.Info("close tcp session pair")
 	readWriteEach(waitCtx, cnn, toCnn)
 }
 
-func handleUdpSession(waitCtx context.Context, logger logr.Logger, c *chain, ssn *udpSession,
+func handleUdpSession(waitCtx context.Context, logger *slog.Logger, c *chain, ssn *udpSession,
 	frontend *udpSessionFrontend, body []byte) {
 	var err error
 	var toCnn net.Conn
 
 	var d = &net.Dialer{}
 	if toCnn, err = d.DialContext(waitCtx, c.Proto, c.ToAddr); err != nil {
-		logger.Error(err, "failed dial udp addr", "addr", c.ToAddr)
+		logger.Error("failed dial udp addr", "addr", c.ToAddr, "error", err)
 		return
 	}
-	logger = logger.WithValues("left", fmt.Sprintf("%v to %v", frontend.addr.String(), frontend.pktCnn.LocalAddr().String()),
+	logger = logger.With("left", fmt.Sprintf("%v to %v", frontend.addr.String(), frontend.pktCnn.LocalAddr().String()),
 		"right", fmt.Sprintf("%v to %v", toCnn.LocalAddr().String(), toCnn.RemoteAddr().String()))
 	logger.Info("new udp session pair")
 	defer logger.Info("close udp session pair")
@@ -156,7 +156,7 @@ func handleUdpSession(waitCtx context.Context, logger logr.Logger, c *chain, ssn
 	}
 
 	if _, err = backend.Write(body); err != nil {
-		logger.Error(err, "failed write on udp")
+		logger.Error("failed write on udp", "error", err)
 		return
 	}
 	readWriteEach(waitCtx, frontend, backend)

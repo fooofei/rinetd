@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	stdlog "log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -11,8 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
+	"golang.org/x/exp/slog"
 )
 
 // worked like `rinetd` https://github.com/samhocevar/rinetd.
@@ -22,7 +19,7 @@ import (
 // arg curChains is current chains
 // arg expectChains is the expect chains read from config file
 // return the final chains
-func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.WaitGroup,
+func reconcileListeners(waitCtx context.Context, logger *slog.Logger, wg *sync.WaitGroup,
 	curChains []*chain, expectChains []*chain) []*chain {
 	var createdCnt int64
 	var keepedCnt int64
@@ -58,7 +55,7 @@ func reconcileListeners(waitCtx context.Context, logger logr.Logger, wg *sync.Wa
 }
 
 // workLoop loop in stat summary + watch config file + reconcile listeners
-func workLoop(waitCtx context.Context, logger logr.Logger, filePath string) {
+func workLoop(waitCtx context.Context, logger *slog.Logger, filePath string) {
 	var chains []*chain
 	var statInterval = time.Minute
 	var chainsCh = make(chan []*chain, 10)
@@ -70,7 +67,7 @@ func workLoop(waitCtx context.Context, logger logr.Logger, filePath string) {
 
 	var watchConfigLoopFunc, closeConfigWatch, err = watchConfig(filePath, chainsCh)
 	if err != nil {
-		logger.Error(err, "failed create watch config")
+		logger.Error("failed create watch config", "error", err)
 		return
 	}
 	defer closeConfigWatch()
@@ -94,8 +91,8 @@ loop:
 
 func main() {
 	// setup logger in main routine
-	logger := stdr.New(stdlog.New(os.Stderr, fmt.Sprintf("pid-%v ", os.Getpid()), stdlog.Lshortfile|stdlog.LstdFlags))
-	stdr.SetVerbosity(10)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+	logger = logger.With("pid", os.Getpid())
 	//
 	var err error
 	fullPath, _ := os.Executable()
@@ -103,7 +100,7 @@ func main() {
 	confPath := filepath.Join(cur, "rinetd.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {
-		logger.Error(err, "file stat config file", "filePath", confPath)
+		logger.Error("file stat config file", "filePath", confPath, "error", err)
 		return
 	}
 	//

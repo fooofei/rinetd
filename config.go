@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/go-logr/logr"
+	"golang.org/x/exp/slog"
 )
 
 func parseConfig(r io.Reader) ([]*chain, error) {
@@ -55,7 +55,7 @@ func parseConfigFile(filename string) ([]*chain, error) {
 }
 
 // watchConfig when config file changed, re-parse config file, push result to channel
-func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Context, logger logr.Logger), func(), error) {
+func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Context, logger *slog.Logger), func(), error) {
 	if result, err := parseConfigFile(filePath); err != nil {
 		return nil, nil, fmt.Errorf("failed parse config file with error %w", err)
 	} else {
@@ -72,7 +72,7 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 		watcher.Close()
 		return nil, nil, err
 	}
-	watchLoopFunc := func(waitCtx context.Context, logger logr.Logger) {
+	watchLoopFunc := func(waitCtx context.Context, logger *slog.Logger) {
 		var eventList []fsnotify.Event
 		var ok bool
 		var result []*chain
@@ -85,21 +85,21 @@ func watchConfig(filePath string, ch chan []*chain) (func(waitCtx context.Contex
 				}
 				if !ok {
 					err = fmt.Errorf("closed chan of watcher.Events channel, not receive error")
-					logger.Error(err, "exit watch config")
+					logger.Error("exit watch config", "error", err)
 					return
 				}
 				if result, err = parseConfigFile(filePath); err != nil {
-					logger.Error(err, "failed parse config file")
+					logger.Error("failed parse config file", "error", err)
 				} else {
 					ch <- result
 				}
 			case err, ok = <-watcher.Errors:
 				if !ok {
 					err = fmt.Errorf("closed chan of watcher.Errors channel, not receive error")
-					logger.Error(err, "exit watch config")
+					logger.Error("exit watch config", "error", err)
 					return
 				}
-				logger.Error(err, "receive error from watcher.Errors channel")
+				logger.Error("receive error from watcher.Errors channel", "error", err)
 			case <-waitCtx.Done():
 				logger.Info("exit watch config for context done")
 				break loop
